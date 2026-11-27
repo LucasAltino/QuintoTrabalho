@@ -5,15 +5,15 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { PermissionDeniedError } from '../domain/errors';
 import { TRANSITION_RULES } from '../domain/transition/return-transition-rules';
 import { AuthenticatedRequest, AuthenticatedUser } from '../../auth/auth.types';
-import { ReturnAction } from '../application/use-case/return-request.usecases';
+import { ReturnAction } from '../commands/return-actions';
 
 const RETURN_ACTION_METADATA = 'return_action';
 
 export const RETURN_ACTION_PERMISSIONS: Record<Role, readonly ReturnAction[]> = {
-  CUSTOMER: ['create', 'list', 'read', 'update', 'post', 'cancel'],
+  CUSTOMER: ['create', 'list', 'read', 'readReverseCode', 'update', 'post', 'cancel'],
   INSPECTOR: ['list', 'read', 'receive', 'startInspection', 'requestAdjustment', 'approve', 'reject'],
   FINANCE: ['list', 'read', 'complete', 'cancel'],
-  ADMIN: ['create', 'list', 'read', 'update', ...Object.keys(TRANSITION_RULES) as ReturnAction[]],
+  ADMIN: ['create', 'list', 'read', 'readReverseCode', 'update', ...Object.keys(TRANSITION_RULES) as ReturnAction[]],
 };
 
 export const RequireReturnAction = (action: ReturnAction) =>

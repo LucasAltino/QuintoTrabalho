@@ -41,7 +41,7 @@ export type ReturnStatusValue =
   | "COMPLETED"
   | "CANCELLED";
 
-export interface ReturnRequest {
+export interface ReturnRequestReadDto {
   id: string;
   orderId: string;
   customerId: string;
@@ -50,18 +50,20 @@ export interface ReturnRequest {
   reason: string;
   description: string;
   status: ReturnStatusValue;
+  statusLabel: string;
   trackingCode: string | null;
   inspectionResult: string | null;
   rejectionReason: string | null;
   adjustmentRequestedAt: string | null;
   adjustmentReason: string | null;
   version: number;
-  reverseCode?: string;
   createdAt: string;
   updatedAt: string;
+  itemCount: number;
+  totalItemQuantity: number;
 }
 
-export interface CreateReturnPayload {
+export interface CreateReturnRequestCommand {
   orderId: string;
   productId: string;
   type: ReturnTypeValue;
@@ -70,13 +72,13 @@ export interface CreateReturnPayload {
   items: { orderItemId: string; quantity: number }[];
 }
 
-export interface UpdateReturnPayload {
+export interface UpdateReturnDetailsCommand {
   reason?: string;
   description?: string;
   trackingCode?: string | null;
 }
 
-export interface PostReturnPayload {
+export interface PostReturnRequestCommand {
   trackingCode: string;
   reverseCode: string;
 }
@@ -169,48 +171,57 @@ export const ticketsApi = {
   },
 };
 
-// ----------------- RETURNS API -----------------
-export const returnsApi = {
-  list: async (): Promise<ReturnRequest[]> => {
-    return request<ReturnRequest[]>("/returns");
+// ----------------- RETURNS QUERIES -----------------
+export const returnQueries = {
+  listSummary: async (): Promise<ReturnRequestReadDto[]> => {
+    return request<ReturnRequestReadDto[]>("/returns");
   },
-  getById: async (id: string): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}`);
+  getById: async (id: string): Promise<ReturnRequestReadDto> => {
+    return request<ReturnRequestReadDto>(`/returns/${id}`);
   },
-  create: async (data: CreateReturnPayload): Promise<ReturnRequest> => {
-    return request<ReturnRequest>("/returns", {
+  activeReverseCode: async (id: string): Promise<{ code: string }> => {
+    return request<{ code: string }>(`/returns/${id}/reverse-code`);
+  },
+};
+
+// ----------------- RETURNS COMMANDS -----------------
+export const returnCommands = {
+  create: async (
+    command: CreateReturnRequestCommand,
+  ): Promise<{ id: string }> => {
+    return request<{ id: string }>("/returns", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(command),
     });
   },
-  update: async (
+  updateDetails: async (
     id: string,
-    data: UpdateReturnPayload,
-  ): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}`, {
+    command: UpdateReturnDetailsCommand,
+  ): Promise<void> => {
+    return request<void>(`/returns/${id}`, {
       method: "PUT",
-      body: JSON.stringify(data),
+      body: JSON.stringify(command),
     });
   },
-  post: async (id: string, data: PostReturnPayload): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/post`, {
+  post: async (id: string, command: PostReturnRequestCommand): Promise<void> => {
+    return request<void>(`/returns/${id}/post`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(command),
     });
   },
-  receive: async (id: string): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/receive`, { method: "POST" });
+  receive: async (id: string): Promise<void> => {
+    return request<void>(`/returns/${id}/receive`, { method: "POST" });
   },
-  startInspection: async (id: string): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/start-inspection`, {
+  startInspection: async (id: string): Promise<void> => {
+    return request<void>(`/returns/${id}/start-inspection`, {
       method: "POST",
     });
   },
   approve: async (
     id: string,
     inspectionResult: string,
-  ): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/approve`, {
+  ): Promise<void> => {
+    return request<void>(`/returns/${id}/approve`, {
       method: "POST",
       body: JSON.stringify({ inspectionResult }),
     });
@@ -218,8 +229,8 @@ export const returnsApi = {
   reject: async (
     id: string,
     rejectionReason: string,
-  ): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/reject`, {
+  ): Promise<void> => {
+    return request<void>(`/returns/${id}/reject`, {
       method: "POST",
       body: JSON.stringify({ rejectionReason }),
     });
@@ -227,19 +238,19 @@ export const returnsApi = {
   requestAdjustment: async (
     id: string,
     adjustmentReason: string,
-  ): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/request-adjustment`, {
+  ): Promise<void> => {
+    return request<void>(`/returns/${id}/request-adjustment`, {
       method: "POST",
       body: JSON.stringify({ adjustmentReason }),
     });
   },
-  complete: async (id: string): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/complete`, {
+  complete: async (id: string): Promise<void> => {
+    return request<void>(`/returns/${id}/complete`, {
       method: "POST",
     });
   },
-  cancel: async (id: string, justification: string): Promise<ReturnRequest> => {
-    return request<ReturnRequest>(`/returns/${id}/cancel`, {
+  cancel: async (id: string, justification: string): Promise<void> => {
+    return request<void>(`/returns/${id}/cancel`, {
       method: "POST",
       body: JSON.stringify({ justification }),
     });

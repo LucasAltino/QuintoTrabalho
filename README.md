@@ -102,11 +102,11 @@ erDiagram
 
 O SOLID **não aparece como uma classe ou pasta chamada “SOLID”**; os princípios estão aplicados na organização do código, principalmente no backend `ppw_server`.
 
-- **S — Responsabilidade única (SRP):** há separação entre apresentação, aplicação, domínio e persistência. Por exemplo, o controller recebe requisições, o serviço coordena a operação e o repositório Prisma persiste os dados: `ReturnRequestService` e `ReturnRequestPrismaRepository`. **Observação:** esse serviço de devoluções reúne vários casos de uso (criar, buscar, listar, atualizar e transicionar), então o SRP é aplicado na separação das camadas, mas a classe ainda tem responsabilidades amplas.
+- **S — Responsabilidade única (SRP):** há separação entre apresentação, aplicação, domínio e persistência. No módulo de devoluções, cada handler recebe uma intenção, como `ApproveReturnRequestHandler`; controller e handlers usam contratos próprios para comandos e consultas.
 
 - **O — Aberto/fechado (OCP):** regras variáveis ficam separadas em abstrações. O cálculo de reembolso depende de `RefundStrategy` e há uma implementação concreta em `ProportionalRefundCalculator`. As transições também seguem a interface `TransitionRule`. Isso facilita acrescentar ou trocar regras; ainda assim, novas ações de transição também precisam ser registradas no mapa de regras.
 
-- **L — Substituição de Liskov (LSP):** os adapters implementam contratos que permitem trocar a implementação sem mudar o consumidor. Por exemplo, `ReturnRequestPrismaRepository` implementa `ReturnRequestRepository`. Aqui a evidência é a compatibilidade com as interfaces; não encontrei algo identificado explicitamente como “LSP”.
+- **L — Substituição de Liskov (LSP):** os adapters implementam contratos que permitem trocar a implementação sem mudar o consumidor. `ReturnRequestPrismaCommandRepository` implementa o port `ReturnRequestCommandRepository`, e `ReturnRequestPrismaQueryRepository` implementa `ReturnRequestQueryRepository`.
 
 - **I — Segregação de interfaces (ISP):** tickets separam operações de leitura e escrita em `TicketReadRepository` e `TicketWriteRepository`, evitando exigir que todo consumidor dependa de um contrato único com todas as operações.
 
@@ -121,11 +121,11 @@ O SOLID **não aparece como uma classe ou pasta chamada “SOLID”**; os princ�
 
 ## SRP
 
-- **SRP — Responsabilidade Única:** as camadas separam funções: o controller lida com a requisição, o serviço coordena a operação e o repositório cuida da persistência. Veja `ReturnRequestPrismaRepository`. **Ressalva:** `ReturnRequestService` concentra vários casos de uso — criar, buscar, listar, atualizar e transicionar —, então essa classe não segue o SRP de forma tão estrita.
+- **SRP — Responsabilidade Única:** as camadas separam funções: o controller trata o protocolo HTTP, cada handler executa um comando ou consulta, e cada repositório atende somente ao lado de escrita ou leitura.
 
 ## LSP
 
-- **LSP — Substituição de Liskov:** o exemplo mais próximo é `ReturnRequestPrismaRepository`, que implementa o contrato `ReturnRequestRepository`. Outro repositório que cumpra esse contrato pode substituí-lo para o serviço, desde que preserve o comportamento esperado. **Ressalva:** aqui o princípio aparece via interfaces e injeção; não há uma hierarquia explícita de classes-base e classes derivadas.
+- **LSP — Substituição de Liskov:** qualquer adapter que cumpra `ReturnRequestCommandRepository` ou `ReturnRequestQueryRepository` pode substituir a implementação Prisma correspondente, desde que preserve o contrato.
 - 
 ## Máquina de estados
 
@@ -284,3 +284,29 @@ Os segmentos `/returns` e `/tickets` também têm interfaces de erro temáticas.
 ### Evidências para entrega
 
 As capturas estão em [`docs/evidencias/`](docs/evidencias/README.md): a pasta contém a interface do error boundary, o erro de renderização no Next.js e os detalhes do evento no GlitchTip, incluindo tags, ambiente e stack trace.
+
+## CQRS no módulo de devoluções
+
+O módulo de devoluções separa comandos de consultas. Os handlers em `ppw_server/src/module/returns/commands/` validam as regras do domínio e gravam alterações; cada comando tem um nome de negócio, como `ApproveReturnRequestCommand` e `CancelReturnRequestCommand`. Handlers de escrita retornam `void` ou o identificador criado, sem devolver a entidade persistida.
+
+As consultas em `ppw_server/src/module/returns/queries/` não alteram dados. `ListReturnRequestsSummaryHandler` e `GetReturnRequestByIdHandler` usam um repositório de leitura próprio, que seleciona os campos necessários e monta `ReturnRequestReadDto`, incluindo o rótulo do status e os totais de itens. O Next.js mantém contratos distintos em `returnCommands` e `returnQueries` dentro de `ppw_client/src/lib/api.ts`; depois de uma escrita, a tela recarrega a projeção pela API de consultas.
+
+```mermaid
+flowchart LR
+  UI[Next.js] --> WC[returnCommands]
+  WC --> CC[ReturnRequestController]
+  CC --> CH[Command Handler por intenção]
+  CH --> CR[Repositório de escrita]
+  CR --> DB[(PostgreSQL)]
+  CH -->|void ou id| CC
+
+  UI --> WQ[returnQueries]
+  WQ --> QC[ReturnRequestController]
+  QC --> QH[Query Handler]
+  QH --> QR[Repositório de leitura]
+  QR -->|select e projeção| DB
+  QR --> DTO[ReturnRequestReadDto]
+  DTO --> UI
+```
+
+O comando de criação retorna somente o ID. O Next.js usa uma consulta separada para buscar o código reverso ativo e exibi-lo ao cliente.

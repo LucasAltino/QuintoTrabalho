@@ -6,7 +6,7 @@ import { VersionConflictError } from '../../domain/errors';
 import { PostRule } from '../../domain/transition/return-transition-rules';
 import { ProportionalRefundCalculator } from '../../domain/refund/proportional-refund-calculator';
 import { ReturnStatus, ReturnStatusValue } from '../../domain/value-object/return-status.value.object';
-import { ReturnRequestPrismaRepository } from './return-request.prisma.repository';
+import { ReturnRequestPrismaCommandRepository } from './return-request-prisma-command.repository';
 
 const postgresDescribe = process.env.RUN_POSTGRES_INTEGRATION_TESTS === '1' ? describe : describe.skip;
 
@@ -83,7 +83,7 @@ postgresDescribe('PostgreSQL return posting concurrency', () => {
   });
 
   it('allows exactly one of two simultaneous posts to consume the code', async () => {
-    const repository = new ReturnRequestPrismaRepository(
+    const repository = new ReturnRequestPrismaCommandRepository(
       prisma,
       new ProportionalRefundCalculator(),
     );
@@ -107,7 +107,7 @@ postgresDescribe('PostgreSQL return posting concurrency', () => {
         updatedAt: new Date(),
       }).transition(PostRule, { trackingCode: 'TRACK-1', reverseCode: code });
     const attempt = () =>
-      repository.updateWithVersion(
+      repository.persistTransition(
         createPostedEntity(),
         0,
         [ReturnStatusValue.REQUESTED],

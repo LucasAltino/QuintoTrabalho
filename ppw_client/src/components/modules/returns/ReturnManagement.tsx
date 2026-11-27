@@ -19,10 +19,11 @@ import {
 } from "lucide-react";
 import {
   authApi,
-  returnsApi,
-  ReturnRequest,
-  CreateReturnPayload,
-  UpdateReturnPayload,
+  returnCommands,
+  returnQueries,
+  ReturnRequestReadDto,
+  CreateReturnRequestCommand,
+  UpdateReturnDetailsCommand,
   ReturnStatusValue,
 } from "@/lib/api";
 import { Modal } from "@/components/ui/modal";
@@ -91,7 +92,7 @@ const STATUS_CONFIG: Record<
 };
 
 export function ReturnManagement() {
-  const [returns, setReturns] = useState<ReturnRequest[]>([]);
+  const [returns, setReturns] = useState<ReturnRequestReadDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -109,17 +110,17 @@ export function ReturnManagement() {
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [editingReturn, setEditingReturn] = useState<ReturnRequest | null>(
+  const [editingReturn, setEditingReturn] = useState<ReturnRequestReadDto | null>(
     null,
   );
   const [inspectingReturn, setInspectingReturn] =
-    useState<ReturnRequest | null>(null);
-  const [deletingReturn, setDeletingReturn] = useState<ReturnRequest | null>(
+    useState<ReturnRequestReadDto | null>(null);
+  const [deletingReturn, setDeletingReturn] = useState<ReturnRequestReadDto | null>(
     null,
   );
 
   // Form state for Create
-  const [createForm, setCreateForm] = useState<CreateReturnPayload>({
+  const [createForm, setCreateForm] = useState<CreateReturnRequestCommand>({
     orderId: "",
     productId: "",
     type: "DEVOLUTION",
@@ -129,7 +130,7 @@ export function ReturnManagement() {
   });
 
   // Form state for Edit
-  const [editForm, setEditForm] = useState<UpdateReturnPayload>({
+  const [editForm, setEditForm] = useState<UpdateReturnDetailsCommand>({
     reason: "",
     description: "",
     trackingCode: "",
@@ -148,7 +149,7 @@ export function ReturnManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await returnsApi.list();
+      const data = await returnQueries.listSummary();
       setReturns(Array.isArray(data) ? data : []);
     } catch (err: any) {
       console.error("Erro ao buscar devoluções:", err);
@@ -244,7 +245,7 @@ export function ReturnManagement() {
 
     setIsSubmitting(true);
     try {
-      const created = await returnsApi.create({
+      const createdId = await returnCommands.create({
         ...createForm,
         orderId: createForm.orderId.trim(),
         productId: createForm.productId.trim(),
@@ -257,9 +258,10 @@ export function ReturnManagement() {
           },
         ],
       });
-      if (created.reverseCode) {
+      const reverseCode = await returnQueries.activeReverseCode(createdId.id);
+      if (reverseCode.code) {
         alert(
-          `Solicitação criada. Código reverso (válido por 7 dias): ${created.reverseCode}`,
+          `Solicitação criada. Código reverso (válido por 7 dias): ${reverseCode.code}`,
         );
       }
       setIsCreateOpen(false);
@@ -280,7 +282,7 @@ export function ReturnManagement() {
   };
 
   // Open Edit Modal
-  const handleOpenEdit = (ret: ReturnRequest) => {
+  const handleOpenEdit = (ret: ReturnRequestReadDto) => {
     setEditingReturn(ret);
     setEditForm({
       reason: ret.reason,
@@ -296,7 +298,7 @@ export function ReturnManagement() {
 
     setIsSubmitting(true);
     try {
-      await returnsApi.update(editingReturn.id, {
+      await returnCommands.updateDetails(editingReturn.id, {
         reason: editForm.reason?.trim(),
         description: editForm.description?.trim(),
         trackingCode: editForm.trackingCode?.trim() || null,
@@ -310,7 +312,7 @@ export function ReturnManagement() {
     }
   };
 
-  const handleOpenInspection = (ret: ReturnRequest) => {
+  const handleOpenInspection = (ret: ReturnRequestReadDto) => {
     setInspectingReturn(ret);
     setInspectForm({
       approved: true,
@@ -336,9 +338,9 @@ export function ReturnManagement() {
 
     try {
       if (inspectForm.approved) {
-        await returnsApi.approve(inspectingReturn.id, result);
+        await returnCommands.approve(inspectingReturn.id, result);
       } else {
-        await returnsApi.reject(inspectingReturn.id, rejectionReason);
+        await returnCommands.reject(inspectingReturn.id, rejectionReason);
       }
       setInspectingReturn(null);
       await fetchReturns();
@@ -349,7 +351,7 @@ export function ReturnManagement() {
 
   const performTransition = async (
     errorLabel: string,
-    transition: () => Promise<ReturnRequest>,
+    transition: () => Promise<void>,
   ) => {
     try {
       await transition();
@@ -359,7 +361,7 @@ export function ReturnManagement() {
     }
   };
 
-  const handlePost = (ret: ReturnRequest) => {
+  const handlePost = (ret: ReturnRequestReadDto) => {
     const trackingCode = window
       .prompt("Informe o código de rastreamento:")
       ?.trim();
@@ -369,15 +371,15 @@ export function ReturnManagement() {
       ?.trim();
     if (!reverseCode) return;
     void performTransition("registrar postagem", () =>
-      returnsApi.post(ret.id, { trackingCode, reverseCode }),
+      returnCommands.post(ret.id, { trackingCode, reverseCode }),
     );
   };
 
-  const handleAdjustment = (ret: ReturnRequest) => {
+  const handleAdjustment = (ret: ReturnRequestReadDto) => {
     const reason = window.prompt("Informe o ajuste solicitado:")?.trim();
     if (reason)
       void performTransition("solicitar ajuste", () =>
-        returnsApi.requestAdjustment(ret.id, reason),
+        returnCommands.requestAdjustment(ret.id, reason),
       );
   };
 
@@ -390,12 +392,11 @@ export function ReturnManagement() {
     setIsSubmitting(true);
     try {
       await performTransition("cancelar devolução", async () => {
-        const result = await returnsApi.cancel(
+        await returnCommands.cancel(
           deletingReturn.id,
           justification,
         );
         setDeletingReturn(null);
-        return result;
       });
     } finally {
       setIsSubmitting(false);
@@ -826,7 +827,7 @@ export function ReturnManagement() {
                           onClick={() =>
                             void performTransition(
                               "registrar recebimento",
-                              () => returnsApi.receive(ret.id),
+                              () => returnCommands.receive(ret.id),
                             )
                           }
                         >
@@ -840,7 +841,7 @@ export function ReturnManagement() {
                           variant="secondary"
                           onClick={() =>
                             void performTransition("iniciar inspeção", () =>
-                              returnsApi.startInspection(ret.id),
+                              returnCommands.startInspection(ret.id),
                             )
                           }
                           className="h-8 text-xs font-semibold gap-1.5"
@@ -871,7 +872,7 @@ export function ReturnManagement() {
                           size="sm"
                           onClick={() =>
                             void performTransition("concluir devolução", () =>
-                              returnsApi.complete(ret.id),
+                              returnCommands.complete(ret.id),
                             )
                           }
                         >

@@ -3,22 +3,22 @@ import { Prisma, RefundStatus, ReturnRequest, ReturnStatus } from '@prisma/clien
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ReturnRequestEntity, ReturnRequestRecord } from '../../domain/entity/return-request.entity';
-import { CreatedReturnRequest, ReturnRequestRepository } from '../../domain/ports/return-request.repository';
+import { ReturnRequestCommandRepository } from '../../domain/ports/return-request-command.repository';
 import { ReturnStatusValue } from '../../domain/value-object/return-status.value.object';
 import { PayloadValidationError, VersionConflictError } from '../../domain/errors';
 import { ReturnQuantity, RefundCalculationInput, RefundStrategy } from '../../domain/refund/refund-strategy';
 import { calculateReturnRefund } from '../../domain/refund/calculate-return-refund';
 
 @Injectable()
-export class ReturnRequestPrismaRepository implements ReturnRequestRepository {
+export class ReturnRequestPrismaCommandRepository implements ReturnRequestCommandRepository {
   constructor(
     private readonly prisma: PrismaService,
     @Inject('REFUND_STRATEGY') private readonly refundStrategy: RefundStrategy,
   ) {}
 
-  async create(solicitacao: ReturnRequestEntity, items: ReturnQuantity[]): Promise<CreatedReturnRequest> {
+  async create(solicitacao: ReturnRequestEntity, items: ReturnQuantity[]): Promise<void> {
     const { id, orderId, customerId, productId, type, reason, description, trackingCode } = solicitacao.props;
-    return this.prisma.$transaction(async (transaction) => {
+    await this.prisma.$transaction(async (transaction) => {
       const order = await transaction.order.findUnique({
         where: { id: orderId },
         include: { items: { include: { returnItems: { include: { returnRequest: true } } } } },
@@ -45,7 +45,7 @@ export class ReturnRequestPrismaRepository implements ReturnRequestRepository {
         }
       }
 
-      const request = await transaction.returnRequest.create({
+      await transaction.returnRequest.create({
         data: {
           id,
           orderId,
@@ -72,37 +72,28 @@ export class ReturnRequestPrismaRepository implements ReturnRequestRepository {
           expiresAt: this.reverseCodeExpiry(),
         },
       });
-      return { request: toRecord(request), reverseCode };
     });
   }
 
-  async findById(id: string): Promise<ReturnRequestRecord | null> {
+  async loadForCommand(id: string): Promise<ReturnRequestRecord | null> {
     const request = await this.prisma.returnRequest.findUnique({ where: { id } });
     return request ? toRecord(request) : null;
   }
 
-  async findAll(customerId?: string): Promise<ReturnRequestRecord[]> {
-    const requests = await this.prisma.returnRequest.findMany({
-      where: customerId ? { customerId } : undefined,
-      orderBy: { createdAt: 'desc' },
-    });
-    return requests.map(toRecord);
-  }
-
-  async update(solicitacao: ReturnRequestEntity): Promise<ReturnRequestRecord> {
+  async updateDetails(solicitacao: ReturnRequestEntity): Promise<void> {
     const dados = solicitacao.props;
-    const updated = await this.prisma.returnRequest.update({
+    await this.prisma.returnRequest.update({
       where: { id: dados.id },
       data: {
         reason: dados.reason,
         description: dados.description,
         trackingCode: dados.trackingCode ?? null,
+        updatedAt: dados.updatedAt ?? new Date(),
       },
     });
-    return toRecord(updated);
   }
 
-  async updateWithVersion(
+  async persistTransition(
     request: ReturnRequestEntity,
     expectedVersion: number,
     from: ReturnStatusValue[],
@@ -110,7 +101,7 @@ export class ReturnRequestPrismaRepository implements ReturnRequestRepository {
     actorId: string,
     justification: string,
     reverseCode?: string,
-  ): Promise<ReturnRequestRecord> {
+  ): Promise<void> {
     const data = request.props;
     return this.prisma.$transaction(async (transaction) => {
       if (data.status.getValue() === ReturnStatusValue.POSTED) {
@@ -164,9 +155,6 @@ export class ReturnRequestPrismaRepository implements ReturnRequestRepository {
         await this.cancelReturn(transaction, data.id, data.orderId, previousStatus, data.type);
       }
 
-      const updated = await transaction.returnRequest.findUnique({ where: { id: data.id } });
-      if (!updated) throw new Error('Return request disappeared after a successful update');
-      return toRecord(updated);
     });
   }
 

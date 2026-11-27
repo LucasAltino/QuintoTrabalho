@@ -9,7 +9,7 @@ import {
   PostRule,
 } from '../../domain/transition/return-transition-rules';
 import { ReturnStatus, ReturnStatusValue } from '../../domain/value-object/return-status.value.object';
-import { ReturnRequestPrismaRepository } from './return-request.prisma.repository';
+import { ReturnRequestPrismaCommandRepository } from './return-request-prisma-command.repository';
 import { ProportionalRefundCalculator } from '../../domain/refund/proportional-refund-calculator';
 import { PayloadValidationError } from '../../domain/errors';
 
@@ -79,7 +79,7 @@ function postEntity(): ReturnRequestEntity {
   }).transition(PostRule, { trackingCode: 'TRACK-1', reverseCode: 'CODE-1' });
 }
 
-describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
+describe('ReturnRequestPrismaCommandRepository.persistTransition', () => {
   it('converts an updateMany count of zero into a version conflict', async () => {
     const transaction: MockTransaction = {
       returnRequest: {
@@ -94,10 +94,10 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
     const prisma = {
       $transaction: jest.fn((work: (tx: MockTransaction) => Promise<unknown>) => work(transaction)),
     } as unknown as PrismaService;
-    const repository = new ReturnRequestPrismaRepository(prisma, new ProportionalRefundCalculator());
+    const repository = new ReturnRequestPrismaCommandRepository(prisma, new ProportionalRefundCalculator());
 
     await expect(
-      repository.updateWithVersion(
+      repository.persistTransition(
         createEntity(),
         5,
         [ReturnStatusValue.INSPECTING],
@@ -141,10 +141,10 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
         }
       }),
     } as unknown as PrismaService;
-    const repository = new ReturnRequestPrismaRepository(prisma, new ProportionalRefundCalculator());
+    const repository = new ReturnRequestPrismaCommandRepository(prisma, new ProportionalRefundCalculator());
 
     await expect(
-      repository.updateWithVersion(
+      repository.persistTransition(
         createEntity(),
         5,
         [ReturnStatusValue.INSPECTING],
@@ -192,10 +192,10 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
     const prisma = {
       $transaction: jest.fn((work: (tx: MockTransaction) => Promise<unknown>) => work(transaction)),
     } as unknown as PrismaService;
-    const repository = new ReturnRequestPrismaRepository(prisma, new ProportionalRefundCalculator());
+    const repository = new ReturnRequestPrismaCommandRepository(prisma, new ProportionalRefundCalculator());
     const approved = createEntity();
 
-    await repository.updateWithVersion(
+    await repository.persistTransition(
       approved,
       5,
       [ReturnStatusValue.INSPECTING],
@@ -213,7 +213,7 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
     });
 
     const completed = approved.transition(CompleteRule, {});
-    await repository.updateWithVersion(
+    await repository.persistTransition(
       completed,
       5,
       [ReturnStatusValue.APPROVED],
@@ -262,10 +262,10 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
     const prisma = {
       $transaction: jest.fn((work: (tx: MockTransaction) => Promise<unknown>) => work(transaction)),
     } as unknown as PrismaService;
-    const repository = new ReturnRequestPrismaRepository(prisma, new ProportionalRefundCalculator());
+    const repository = new ReturnRequestPrismaCommandRepository(prisma, new ProportionalRefundCalculator());
 
     await expect(
-      repository.updateWithVersion(
+      repository.persistTransition(
         postEntity(),
         0,
         [ReturnStatusValue.REQUESTED],
@@ -302,10 +302,10 @@ describe('ReturnRequestPrismaRepository.updateWithVersion', () => {
     const prisma = {
       $transaction: jest.fn((work: (tx: MockTransaction) => Promise<unknown>) => work(transaction)),
     } as unknown as PrismaService;
-    const repository = new ReturnRequestPrismaRepository(prisma, new ProportionalRefundCalculator());
+    const repository = new ReturnRequestPrismaCommandRepository(prisma, new ProportionalRefundCalculator());
     const cancelled = createEntity().transition(CancelRule, { justification: 'Customer changed their mind' });
 
-    await repository.updateWithVersion(
+    await repository.persistTransition(
       cancelled,
       5,
       [ReturnStatusValue.APPROVED],
