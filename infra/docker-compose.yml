@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-glitchtip}
+      POSTGRES_USER: ${POSTGRES_USER:-glitchtip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-glitchtip_local}
+    volumes:
+      - glitchtip_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - glitchtip_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: glitchtip/glitchtip:${GLITCHTIP_VERSION:-latest}
+    command: ./bin/run-migrate.sh
+    environment: &glitchtip-environment
+      DATABASE_URL: postgres://${POSTGRES_USER:-glitchtip}:${POSTGRES_PASSWORD:-glitchtip_local}@postgres:5432/${POSTGRES_DB:-glitchtip}
+      VALKEY_URL: redis://redis:6379
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-local-only-change-this-secret-key}
+      EMAIL_URL: consolemail://
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-glitchtip@localhost}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:8000}
+      ENABLE_USER_REGISTRATION: "true"
+      ENABLE_ORGANIZATION_CREATION: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    image: glitchtip/glitchtip:${GLITCHTIP_VERSION:-latest}
+    command: ./bin/start.sh
+    restart: unless-stopped
+    environment:
+      <<: *glitchtip-environment
+      SKIP_INIT: "true"
+    ports:
+      - "${GLITCHTIP_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  glitchtip_postgres_data:
+  glitchtip_redis_data:
